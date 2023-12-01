@@ -51,7 +51,7 @@ end
 function Picture()
   if knownbaddies:CountAlive() > 0 then
     local text = "Achtung! An alle Einheiten! Lagebild!"
-    MESSAGE:New(text,15,"RLM"):ToSRSRed()
+    MESSAGE:New(text,15,"RLM"):ToSRSRed():ToRed()
     knownbaddies:ForEachGroupAlive(
       function(grp)
         Announce(grp)
