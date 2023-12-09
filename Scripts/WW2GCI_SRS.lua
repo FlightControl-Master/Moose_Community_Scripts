@@ -36,7 +36,7 @@ function RadarBlur(Group)
   local AGL = UTILS.MetersToFeet(group:GetAltitude(true)) -- get AGL in feet
   local fheight = math.floor(math.random(1,10000)/100)
   local fblur = math.floor(math.random(1,10000)/100)
-  if AGL <= minheight and fheight > thresheight then found = false end
+  if AGL <= minheight and fheight < thresheight then found = false end
   if fblur > thresblur then found = false end
   return found
 end
