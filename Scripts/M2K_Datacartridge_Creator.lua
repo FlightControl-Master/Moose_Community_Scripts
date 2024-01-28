@@ -43,9 +43,12 @@ Create another waypoint on the map, by placing a new marker on the map, e.g. "M2
 You may create up to 20 waypoints for a single plan. 1-10 waypoints will be stored the the Mirage's INS system under BUT 11-20. If you use more than 10 waypoints, the Mirage will start
 adding waypoints at BUT1, overwriting whatever is there.
 
-Known keywords (all optional) for BUT creation are: "alt", "cp", "pd", and "rd". The format is always "key=xxxx.xx" where x are numbers and . the decimal separator, e.g. alt=5000.23. 
+Known keywords (all optional) for BUT creation are: "alt", "cp", "pd", "rd" and "name". The format is always (except for name) "key=xxxx.xx" where x are numbers and . the decimal separator, e.g. alt=5000.23. 
+The format for "name" is "name=abc" where abc is alphanumeric, no spaces, no special characters.
 Entries are separated by spaces. Special keywords are "FT" to switch to foot for altitude entries and "KM" to switch back to meters.
 Example with multiple parameters given "M2K BUT4 alt=25000 FT rd=267" - BUT four, altitude 25000ft, route desiree 267 degrees.
+
+Creating a new BUT with an existing number will overwrite the existing BUT, i.e. you can correct entries this way.
 
 Creating BAD entries
 
@@ -53,6 +56,8 @@ If you want e.g. to use this system to plan for a preplanned strike, you can ame
 Let's assume you have created BUT3 to be your ingress point for the strike: "M2K BUT3 alt=150 FT rd=90". Now put a marker on the target area in the map
 and add this text: "M2K BAD3". This will amend the info for BUT3 with the delta distance information and delta altitude (ground height automatically assumed).
 Optionally you can use the keyword "dalt" to give the delta altitude yourself: "M2K BAD3 dalt=-56" (foot in this case, because we switched to imperial prior.
+
+Creating a new BAD with an existing number will overwrite the existing BAD information, i.e. you can correct entries this way.
 
 Saving
 Place a marker and add this text: "M2K Save". This will save the DTC data to your directory. The filname will be "mapname_missionname.dtc", e.g. "Caucasus_CAP_Kutaisi.dtc"
