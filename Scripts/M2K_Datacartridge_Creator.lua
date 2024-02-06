@@ -4,7 +4,7 @@
 
 --[[
 
-Mirage 2000C Datacartridge Generator v1.1
+Mirage 2000C Datacartridge Generator v1.2
 Author: Applevangelist
 
 Prerequisites
@@ -24,7 +24,7 @@ Prerequisites
   depending on which version of DCS you are running
 * Note - Currently the Mirage does not detect freshly created DTCs in-game. It will find the cartrige after the next restart, however.
 
-* Creating a data cartridge
+Creating a data cartridge
 
 While in-game, press F10 to bring up the map. Place a marker on the map and enter this text: "M2K New CAP_Kutaisi". This will create a new data set called
 "CAP_Kutaisi" - this will show up on the cartridge in-game later on when selecting a cartride. Mission names must not contain spaces or pattern matching
@@ -34,7 +34,6 @@ magic characters (http://www.easyuo.com/openeuo/wiki/index.php/Lua_Patterns_and_
 
 Creating a new data set deletes existing entries, so if you made a mistake you can start anew.
 
-* Creating BUT entries
 Assuming we are starting from Kutaisi, let's create our first waypoint. Put a marker on the start of the runway 07 in Kutaisi and enter this text:
 "M2K BUT1 name=Kutaisi cp=67". This will create our first waypoint (BUT) with the number one. The runway heading is cp, in this case 67 degrees magnetic. The altitude is automatically
 taken as land height at this point. With cp as a parameter, rd (route desiree) is automatically set to equal cp, and pd (glidepath) is set to 3.5.
@@ -45,29 +44,28 @@ You may create up to 20 waypoints for a single plan. 1-10 waypoints will be stor
 adding waypoints at BUT1, overwriting whatever is there.
 
 Known keywords (all optional) for BUT creation are: "alt", "cp", "pd", "rd", "td", "rho", "theta", "dnorth", "deast", "dalt" and "name". The format is always (except for name) "key=xxxx.xx" where x are numbers and . the decimal separator, 
-e.g. alt=5000.23. The format for "name" is "name=abc" where abc is alphanumeric, no spaces, no special characters. The name appears in the Kneeboard sheet.
+e.g. alt=5000.23. The format for "name" is "name=abc" where abc is alphanumeric, no spaces, no special characters.
 Entries are separated by spaces. Special keywords are "FT" to switch to foot for altitude entries and "KM" to switch back to meters.
 Example with multiple parameters given "M2K BUT4 alt=25000 FT rd=267" - BUT four, altitude 25000ft, route desiree 267 degrees.
 
-Creating a new BUT with an existing number will overwrite the existing BUT, i.e. you can correct entries this way.
+Creating BAD entries
 
-* Creating BAD entries
 If you want e.g. to use this system to plan for a preplanned strike, you can amend a BUT with BAD (delta deviation) information. This is done like so:
 Let's assume you have created BUT3 to be your ingress point for the strike: "M2K BUT3 alt=150 FT rd=90". Now put a marker on the target area in the map
 and add this text: "M2K BAD3". This will amend the info for BUT3 with the delta distance information and delta altitude (ground height automatically assumed).
 Optionally you can use the keyword "dalt" to give the delta altitude yourself: "M2K BAD3 dalt=-56" (foot in this case, because we switched to imperial prior.
 
-Creating a new BAD with an existing number will overwrite the existing BAD, i.e. you can correct entries this way.
+Creating BAD information in the BUT
 
-* Creating BAD information in the BUT
 Instead of using a second marker to give BAD information, you can add it directly, when entering the BUT data. You need to add "dalt", and either "rho" and "theta", or "dnorth" and deast".
 
-* Saving
+Saving
 Place a marker and add this text: "M2K Save". This will save the DTC data to your directory. The filname will be "mapname_missionname.dtc", e.g. "Caucasus_CAP_Kutaisi.dtc"
 
 --]]
 
-local debug = true
+local debug = false
+local usednorthdneast = false
 local CartridgeGenerator = MARKEROPS_BASE:New("M2K",{"New","BUT","BAD","Save","FT","KM"},false)
 local map = UTILS.GetDCSMap()
 
@@ -221,10 +219,11 @@ else
       text = text .. ' }'
       local wpt = FillWptTable(tname,number,lattxt,lontxt,alt,cp,pd,rd,dalt,nil,nil,td,rho,theta,dnorth,deast)
       wpt.text = text
+      wpt.coord = Coord
       waypoints[name]=wpt
       MESSAGE:New("New BUT created!",10,"M2K DTC"):ToAllIf(debug):ToLog()
       MESSAGE:New(text,10,"M2K DTC"):ToAllIf(debug):ToLog()
-      UTILS.PrintTableToLog(waypoints,1)
+      --UTILS.PrintTableToLog(waypoints,1)
     end
     
     if FindInKeywords("BAD") then
@@ -240,11 +239,17 @@ else
       local tname = wpt.name
       local lat, lon = coord.LOtoLL( Coord:GetVec3() )
       local off_lat, off_lon = UTILS.tostringLLM2KData(lat,lon,4)
-      local dalt = GetKeyValue("dalt") or Coord:GetLandHeight()
-      if not metric then
+      local butcoord = wpt.coord
+      local dnorth = butcoord.x - Coord.x 
+      local deast = butcoord.z - Coord.z
+      local dalt = GetKeyValue("dalt")
+      if not metric and dalt then
         dalt = UTILS.FeetToMeters(tonumber(dalt))
       end
-      dalt = dalt - wpt.alt
+      if not dalt then
+        dalt = Coord:GetLandHeight()
+        dalt = dalt - wpt.alt
+      end
       --local wpt = FillWptTable(name,number,wpt.lat,wpt.lon,wpt.alt,wpt.cp,wpt.pd,wpt.rd,dalt,off_lat,off_lon)
       --local text = wpt.text
       --text = string.gsub(text," }$","")
@@ -252,7 +257,13 @@ else
       if wpt.cp then text = text .. string.format(', cp=%.1f',wpt.cp) end -- runway heading
       if wpt.pd then text = text .. string.format(', pd=%.1f',wpt.pd) end -- glide path
       if wpt.rd then text = text .. string.format(', rd=%.1f',wpt.rd) end -- route desiree
-      text = text .. string.format(', off_lat="%s", off_lon="%s", dalt=%.1f',off_lat,off_lon,dalt)
+      if usednorthdneast then
+        text = text .. string.format(', dnorth=%.1f',dnorth) -- delta northing
+        text = text .. string.format(', deast=%.1f',deast) -- delta easting
+        text = text .. string.format(', dalt=%.1f',dalt) -- delta easting
+      else
+        text = text .. string.format(', off_lat="%s", off_lon="%s", dalt=%.1f',off_lat,off_lon,dalt)
+      end
       text = text .. ' }'
       wpt.name = tname
       wpt.off_lat = off_lat
@@ -263,7 +274,7 @@ else
       self:I(text)
       MESSAGE:New("BUT updated with BAD!",10,"M2K DTC"):ToAllIf(debug)
       MESSAGE:New(text,10,"M2K DTC"):ToAllIf(debug)
-      UTILS.PrintTableToLog(waypoints,1)
+      --UTILS.PrintTableToLog(waypoints,1)
     end
     
     if FindInKeywords("Save") then
