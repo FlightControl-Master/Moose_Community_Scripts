@@ -35,7 +35,7 @@ magic characters (http://www.easyuo.com/openeuo/wiki/index.php/Lua_Patterns_and_
 Creating a new data set deletes existing entries, so if you made a mistake you can start anew.
 
 Assuming we are starting from Kutaisi, let's create our first waypoint. Put a marker on the start of the runway 07 in Kutaisi and enter this text:
-"M2K BUT1 name=Kutaisi cp=67". This will create our first waypoint (BUT) with the number one. The runway heading is cp, in this case 67 degrees magnetic. The altitude is automatically
+"M2K BUT1 name=Kutaisi cp=67". This will create our first waypoint (BUT) with the number one. The runway heading is cp, in this case 67 degrees true. The altitude is automatically
 taken as land height at this point. With cp as a parameter, rd (route desiree) is automatically set to equal cp, and pd (glidepath) is set to 3.5.
 
 Create another waypoint on the map, by placing a new marker on the map, e.g. "M2K BUT2 alt=5000". This creates waypoint two, with an altitude of 5000 meters.
@@ -53,14 +53,14 @@ Creating BAD entries
 If you want e.g. to use this system to plan for a preplanned strike, you can amend a BUT with BAD (delta deviation) information. This is done like so:
 Let's assume you have created BUT3 to be your ingress point for the strike: "M2K BUT3 alt=150 FT rd=90". Now put a marker on the target area in the map
 and add this text: "M2K BAD3". This will amend the info for BUT3 with the delta distance information and delta altitude (ground height automatically assumed).
-Optionally you can use the keyword "dalt" to give the delta altitude yourself: "M2K BAD3 dalt=-56" (foot in this case, because we switched to imperial prior.
+Optionally you can use the keyword "dalt" to give the delta altitude yourself: "M2K BAD3 dalt=-56" (foot in this case, because we switched to imperial prior).
 
 Creating BAD information in the BUT
 
 Instead of using a second marker to give BAD information, you can add it directly, when entering the BUT data. You need to add "dalt", and either "rho" and "theta", or "dnorth" and deast".
 
 Saving
-Place a marker and add this text: "M2K Save". This will save the DTC data to your directory. The filname will be "mapname_missionname.dtc", e.g. "Caucasus_CAP_Kutaisi.dtc"
+Place a marker and add this text: "M2K Save". This will save the DTC data to your directory. The filename will be "mapname_missionname.dtc", e.g. "Caucasus_CAP_Kutaisi.dtc"
 
 --]]
 
