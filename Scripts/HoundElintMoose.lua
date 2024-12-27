@@ -27,7 +27,7 @@ do
         MARKER_MAX_ALPHA = 0.2,
         MARKER_LINE_OPACITY = 0.3,
         MARKER_TEXT_POINTER = "⇙ ", -- "¤ « "
-        TTS_ENGINE = {'STTS','GRPC'},
+        TTS_ENGINE = {'MSRS','GRPC','STTS'},  -- added Moose MSRS engine
         MENU_PAGE_LENGTH = 9
     }
 
@@ -66,7 +66,7 @@ do
         SITE_ASLEEP = 21,
         SITE_LAUNCH = 22,
     }
-
+    
     function HOUND.setMgrsPresicion(value)
         if type(value) == "number" then
             HOUND.MGRS_PRECISION = math.min(1,math.max(5,math.floor(value)))
@@ -2914,6 +2914,7 @@ do
 
     function HOUND.Utils.TTS.isAvailable()
         for _,engine in ipairs(HOUND.TTS_ENGINE) do
+            if engine == "MSRS" and MSRS ~= nil then return true end
             if engine == "GRPC" and (l_grpc ~= nil and type(l_grpc.tts) == "function") then return true end
             if engine == "STTS" and STTS ~= nil then return true end
         end
@@ -2954,6 +2955,16 @@ do
         args.gender = args.gender or "female"
 
         for _,engine in ipairs(HOUND.TTS_ENGINE) do
+            
+            if engine == "MSRS" and HOUND.MSRS~=nil and HOUND.MSRSQ ~= nil then
+              local coordinate
+              if coordinate then
+                coordinate = COORDINATE:NewFromVec3(transmitterPos)
+              end
+              --UTILS.PrintTableToLog(args.freq,1)
+              return HOUND.MSRSQ:NewTransmission(msg,nil,HOUND.MSRS,nil,1,nil,nil,nil,args.mfreq,args.mmodulation,args.gender,args.culture,args.voice,args.volume,args.name,coordinate)
+            end
+        
             if engine == "GRPC" and (l_grpc ~= nil and type(l_grpc.tts) == "function") then
                 return HOUND.Utils.TTS.TransmitGRPC(msg,coalitionID,args,transmitterPos)
             end
