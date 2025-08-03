@@ -1,6 +1,12 @@
 --[[
   Early Warning Radar Script - 2.0.0 - created 07/11/2016
   Last Update by Apple 30/11/2023
+
+  New update:
+  Fixed some issues with error due to dcs latest object.getCategory.
+  Custom messages output.
+  Last update by Leka 2025-05-03
+  
   
   Requires MOOSE to run: https://github.com/FlightControl-Master
   
@@ -45,11 +51,12 @@ ewrs.HELO = 1
 ewrs.ATTACK = 2
 ewrs.FIGHTER = 3
 ewrs.version = "2.0.0"
+ewrs.rangeOptions = { km = {10,20,40,60,80,100,150}, nm = {5,10,20,40,60,80,100} }
 
 ----SCRIPT OPTIONS----
 
-ewrs.messageUpdateInterval = 30 --How often EWRS will update automated BRA messages (seconds)
-ewrs.messageDisplayTime = 20 --How long EWRS BRA messages will show for (seconds)
+ewrs.messageUpdateInterval = 60 --How often EWRS will update automated BRA messages (seconds)
+ewrs.messageDisplayTime = 15 --How long EWRS BRA messages will show for (seconds)
 ewrs.restrictToOneReference = false -- Disables the ability to change the BRA calls from pilot's own aircraft or bullseye. If this is true, set ewrs.defaultReference to the option you want to restrict to.
 ewrs.defaultReference = "self" --The default reference for BRA calls - can be changed via f10 radio menu if ewrs.restrictToOneReference is false (self or bulls)
 ewrs.defaultMeasurements = "imperial" --Default measurement units - can be changed via f10 radio menu (imperial or metric)
@@ -63,6 +70,7 @@ ewrs.maxThreatDisplay = 5 -- Max amounts of threats to display on picture report
 ewrs.allowBogeyDope = true -- Allows pilots to request a bogey dope even with the automated messages running. It will display only the cloest threat, and will always reference the players own aircraft.
 ewrs.allowFriendlyPicture = true -- Allows pilots to request picture of friendly aircraft
 ewrs.maxFriendlyDisplay = 5 -- Limits the amount of friendly aircraft shown on friendly picture
+ewrs.showType = true -- if true it will show the type of the unit
 
 ----END OF SCRIPT OPTIONS----
 
@@ -105,78 +113,80 @@ function ewrs.update()
   ewrs.buildF10Menu()
 end
 
-function ewrs.buildThreatTable(activePlayer, bogeyDope)
-  local function sortRanges(v1,v2)
-    return v1.range < v2.range
-  end
+function ewrs.getAspect(bearing, heading)
+  local toRef = (bearing + 180) % 360
+  local diff = math.abs(((heading - toRef + 540) % 360) - 180)
 
-  local targets = {}
-  if activePlayer.side == 2 then
-    targets = ewrs.currentlyDetectedRedUnits
+  if diff <= 30 then
+    return "Hot"
+  elseif diff <= 60 then
+    return "Flanking"
+  elseif diff <= 120 then
+    return "Beaming"
   else
-    targets = ewrs.currentlyDetectedBlueUnits
+    return "Cold"
   end
-  
-  local bogeyDope = bogeyDope or false
+end
+
+function ewrs.buildThreatTable(activePlayer,bogeyDope)
+  local function sortRanges(v1,v2)return v1.range<v2.range end
+  local targets={}
+  if activePlayer.side==2 then targets=ewrs.currentlyDetectedRedUnits else targets=ewrs.currentlyDetectedBlueUnits end
+  local bogeyDope=bogeyDope or false
   local referenceX
   local referenceZ
-  if ewrs.groupSettings[tostring(activePlayer.groupID)].reference == "self" or bogeyDope then
-    local _self = Unit.getByName(activePlayer.unitname)
-    local selfpos = _self:getPosition()
-    referenceX = selfpos.p.x
-    referenceZ = selfpos.p.z
+  if ewrs.groupSettings[tostring(activePlayer.groupID)].reference=="self" or bogeyDope then
+    local _self=Unit.getByName(activePlayer.unitname) if not _self then return {} end
+    local selfpos=_self:getPosition()
+    referenceX=selfpos.p.x
+    referenceZ=selfpos.p.z
   else
-    local bullseye = coalition.getMainRefPoint(activePlayer.side)
-    referenceX = bullseye.x
-    referenceZ = bullseye.z
+    local bullseye=coalition.getMainRefPoint(activePlayer.side)
+    referenceX=bullseye.x
+    referenceZ=bullseye.z
   end
-  
-  local threatTable = {}
-  
-  for k,v in pairs(targets) do
-    local velocity = v["object"]:getVelocity()
-    local bogeypos = v["object"]:getPosition()
-    local bogeyType = nil
-
-    local unit = UNIT:Find(v["object"])
-    bogeyType = unit:GetNatoReportingName()
-
-    local bearing = ewrs.getBearing(referenceX,referenceZ,bogeypos.p.x,bogeypos.p.z)
-    local heading = ewrs.getHeading(velocity)
-    local range = ewrs.getDistance(referenceX,referenceZ,bogeypos.p.x,bogeypos.p.z) -- meters
-    local altitude = bogeypos.p.y --meters
-    local speed = ewrs.getSpeed(velocity) --m/s
-
-    if ewrs.groupSettings[tostring(activePlayer.groupID)].measurements == "metric" then
-      range = UTILS.Round(range / 1000,-1) --change to KM
-      speed = UTILS.Round(UTILS.MpsToKmph(speed),-1)
-      altitude = UTILS.Round(altitude,-1)
+  local threatTable={}
+  for _,obj in pairs(targets) do
+    local velocity=obj:getVelocity()
+    local bogeypos=obj:getPosition()
+    local bogeyType=nil
+    local unit=UNIT:Find(obj) if unit then bogeyType=unit:GetNatoReportingName() end
+    if not bogeyType then bogeyType = "Unknown" end  
+    local bearing = (math.floor((ewrs.getBearing(referenceX,referenceZ,bogeypos.p.x,bogeypos.p.z)+2.5)/5)*5) % 360
+    if bearing == 0 then bearing = 360 end
+    local heading=ewrs.getHeading(velocity)
+    local aspect=ewrs.getAspect(bearing,heading)
+    local range=ewrs.getDistance(referenceX,referenceZ,bogeypos.p.x,bogeypos.p.z)
+    local altitude=bogeypos.p.y
+    local speed=ewrs.getSpeed(velocity)
+    if ewrs.groupSettings[tostring(activePlayer.groupID)].measurements=="metric" then
+      local km=range/1000
+      if km>=60 then range=UTILS.Round(km,-1) elseif km>=20 then range=UTILS.Round(km/5,0)*5 else range=UTILS.Round(km,0) end
+      speed=UTILS.Round(UTILS.MpsToKmph(speed),-1)
+      altitude=UTILS.Round(altitude,-1)
     else
-      range = UTILS.Round(UTILS.MetersToNM(range),-1)
-      speed = UTILS.Round(UTILS.MpsToKnots(speed),-1)
-      altitude = UTILS.Round(UTILS.MetersToFeet(altitude),-3)
+      local nm=UTILS.MetersToNM(range)
+      if nm>=60 then range=UTILS.Round(nm,-1) elseif nm>=20 then range=UTILS.Round(nm/5,0)*5 else range=UTILS.Round(nm,0) end
+      speed=UTILS.Round(UTILS.MpsToKnots(speed),-1)
+      altitude=UTILS.Round(UTILS.MetersToFeet(altitude),-3)
     end
-
-    if ewrs.useImprovedDetectionLogic then
-      if not v["distance"] then
-        range = ewrs.notAvailable
-      end
+    local lim=ewrs.groupSettings[tostring(activePlayer.groupID)].rangeLimit
+    if lim==0 or range<=lim then
+      local j=#threatTable+1
+      threatTable[j]={}
+      threatTable[j].unitType=bogeyType
+      threatTable[j].bearing=bearing
+      threatTable[j].range=range
+      threatTable[j].altitude=altitude
+      threatTable[j].speed=speed
+      threatTable[j].heading=heading
+      threatTable[j].aspect=aspect
     end
-    
-    local j = #threatTable + 1
-    threatTable[j] = {}
-    threatTable[j].unitType = bogeyType
-    threatTable[j].bearing = bearing
-    threatTable[j].range = range
-    threatTable[j].altitude = altitude
-    threatTable[j].speed = speed
-    threatTable[j].heading = heading
   end
-
   table.sort(threatTable,sortRanges)
-  
   return threatTable
 end
+
 
 function ewrs.outText(activePlayer, threatTable, bogeyDope, greeting)
   local status, result = pcall(function()
@@ -209,7 +219,7 @@ function ewrs.outText(activePlayer, threatTable, bogeyDope, greeting)
           else
             maxThreats = ewrs.maxThreatDisplay
           end
-          messageGreeting = "EWRS Picture Report for: " .. activePlayer.player .. " | relative to " .. ewrs.groupSettings[tostring(activePlayer.groupID)].reference
+          messageGreeting = "EWRS : " .. activePlayer.player .. " | relative to " .. ewrs.groupSettings[tostring(activePlayer.groupID)].reference
         end
       else
         messageGreeting = greeting
@@ -217,32 +227,43 @@ function ewrs.outText(activePlayer, threatTable, bogeyDope, greeting)
       end
       
       --Display table
-      table.insert(message, "\n")
-      table.insert(message, messageGreeting)
-      table.insert(message, "\n")
-        
-      for k = 1, maxThreats do
-        if threatTable[k] == nil then break end
-        table.insert(message, "\n")
-        table.insert(message, string.format( "Target #%02d | Type: %s ", k,threatTable[k].unitType))
-        if threatTable[k].range == ewrs.notAvailable then
-          table.insert(message, "Position: Unknown\n")
+   table.insert(message,messageGreeting)
+      table.insert(message,"\n")
+      for k=1,maxThreats do
+        if threatTable[k]==nil then break end
+        local sd=""
+        if threatTable[k].range < 5 then sd="\t\tMERGED"
+        elseif threatTable[k].speed>500 then sd="\t\tFAST"
+        elseif threatTable[k].speed<200 then sd="\t\tslow" end
+
+        if threatTable[k].range==ewrs.notAvailable then
+          table.insert(message,string.format("%s Position: Unknown",(threatTable[k].unitType or "Unknown")))
         else
-          table.insert(message, string.format( "| Bearing: %03d°\n", threatTable[k].bearing))
-          table.insert(message, string.format( "Range: %s%s | ", threatTable[k].range, rangeUnits))
-          table.insert(message, string.format( "Altitude: %s%s\n", threatTable[k].altitude, altUnits))
-          table.insert(message, string.format( "Speed: %s%s | ", threatTable[k].speed, speedUnits))
-          table.insert(message, string.format( "Heading: %03d°\n", threatTable[k].heading))
+          local asp = string.upper(threatTable[k].aspect)
+          if sd == "\t\tMERGED" then
+            if asp == "FLANKING" then asp = "FLANK"
+            elseif asp == "BEAMING" then asp = "BEAM" end
+          end          
+          table.insert(message,string.format("\n%s\t\tBRA\t\t%03d for %s\t\t%s\t\t%s%s",
+          (ewrs.showType and threatTable[k].unitType or "Unknown"),
+          threatTable[k].bearing,
+          threatTable[k].range..rangeUnits,
+          threatTable[k].altitude..altUnits,
+          asp,sd))
         end
-        table.insert(message, "\n")
+        if threatTable[k+1]~=nil then
+          table.insert(message,"\n")
+        end
       end
-      trigger.action.outTextForGroup(activePlayer.groupID, table.concat(message), ewrs.messageDisplayTime)
+      trigger.action.outTextForGroup(activePlayer.groupID,table.concat(message),ewrs.messageDisplayTime)
     else
-      if (not ewrs.disableMessageWhenNoThreats) or (ewrs.onDemand) and greeting == nil then
-        trigger.action.outTextForGroup(activePlayer.groupID, "\nEWRS Picture Report for: " .. activePlayer.player .. "\n\nNo targets detected", ewrs.messageDisplayTime)
+      if bogeyDope then
+        trigger.action.outTextForGroup(activePlayer.groupID, "EWRS Bogey Dope for: " .. activePlayer.player .. "\nNo targets detected", ewrs.messageDisplayTime)
+      elseif (not ewrs.disableMessageWhenNoThreats) and greeting == nil then
+        trigger.action.outTextForGroup(activePlayer.groupID, "EWRS Picture Report for: " .. activePlayer.player .. "\nNo targets detected", ewrs.messageDisplayTime)
       end
       if greeting ~= nil then
-        trigger.action.outTextForGroup(activePlayer.groupID, "\nEWRS Friendly Picture for: " .. activePlayer.player .. "\n\nNo friendlies detected", ewrs.messageDisplayTime)
+        trigger.action.outTextForGroup(activePlayer.groupID, "EWRS Friendly Picture for: " .. activePlayer.player .. "\nNo friendlies detected", ewrs.messageDisplayTime)
       end
     end
   end)
@@ -251,23 +272,7 @@ function ewrs.outText(activePlayer, threatTable, bogeyDope, greeting)
   end
 end
 
-function ewrs.displayMessageToAll()
-  local status, result = pcall(function()
-    timer.scheduleFunction(ewrs.displayMessageToAll, nil, timer.getTime() + ewrs.messageUpdateInterval)
-    ewrs.findRadarUnits()
-    ewrs.getDetectedTargets()
-    for i = 1, #ewrs.activePlayers do
-      if ewrs.groupSettings[tostring(ewrs.activePlayers[i].groupID)].messages then
-        if ewrs.activePlayers[i].side == 1 and #ewrs.redEwrUnits > 0 or ewrs.activePlayers[i].side == 2 and #ewrs.blueEwrUnits > 0 then
-          ewrs.outText(ewrs.activePlayers[i], ewrs.buildThreatTable(ewrs.activePlayers[i]))
-        end -- if ewrs.activePlayers[i].side == 1 and #ewrs.redEwrUnits > 0 or ewrs.activePlayers[i].side == 2 and #ewrs.blueEwrUnits > 0 then
-      end -- if ewrs.groupSettings[tostring(ewrs.activePlayers[i].groupID)].messages then
-    end -- for i = 1, #ewrs.activePlayers do
-  end)
-  if not status then
-    env.error(string.format("EWRS displayMessageToAll Error: %s", result))
-  end
-end
+
 
 function ewrs.onDemandMessage(args)
   local status, result = pcall(function()
@@ -285,66 +290,59 @@ function ewrs.onDemandMessage(args)
 end
 
 function ewrs.buildFriendlyTable(friendlyNames,activePlayer)
-  local function sortRanges(v1,v2)
-    return v1.range < v2.range
+  local function sortRanges(v1,v2) return v1.range<v2.range end
+
+  local units={}
+  for i=1,#friendlyNames do
+    local unit=Unit.getByName(friendlyNames[i])
+    if unit and unit:isActive() then table.insert(units,unit) end
   end
 
-  local units = {}
-  for i =1, #friendlyNames do
-    local unit = Unit.getByName(friendlyNames[i])
-    if unit ~= nil and unit:isActive() then
-    
-      table.insert(units,unit)
-    else
-      --env.error("Friendly Picture - Unit not found: "..friendlyNames[i]) -- Client Planes that are not active will fall into here.
-    end
-  end
-  
-  local _self = Unit.getByName(activePlayer.unitname)
-  local selfpos = _self:getPosition()
-  local referenceX = selfpos.p.x
-  local referenceZ = selfpos.p.z
-  
-  local friendlyTable = {}
-  
+  local _self=Unit.getByName(activePlayer.unitname)
+  local selfpos=_self:getPosition()
+  local referenceX=selfpos.p.x
+  local referenceZ=selfpos.p.z
+
+  local friendlyTable={}
+
   for k,v in pairs(units) do
-    local velocity = v:getVelocity()
-    local pos = v:getPosition()
-    local unit = UNIT:Find(v)
-    local bogeyType = unit:GetNatoReportingName()
-    if pos.p.x ~= selfpos.p.x and pos.p.z ~= selfpos.p.z then --same position as self, means its you!
+    local velocity=v:getVelocity()
+    local pos=v:getPosition()
+    local unit=UNIT:Find(v)
+    if unit then                                           -- << guard >>
+      local bogeyType=unit:GetNatoReportingName()
+      if not bogeyType then bogeyType = "Unknown" end
+      if pos.p.x~=selfpos.p.x and pos.p.z~=selfpos.p.z then
+        local bearing=ewrs.getBearing(referenceX,referenceZ,pos.p.x,pos.p.z)
+        local heading=ewrs.getHeading(velocity)
+        local range=ewrs.getDistance(referenceX,referenceZ,pos.p.x,pos.p.z)
+        local altitude=pos.p.y
+        local speed=ewrs.getSpeed(velocity)
 
-      local bearing = ewrs.getBearing(referenceX,referenceZ,pos.p.x,pos.p.z)
-      local heading = ewrs.getHeading(velocity)
-      local range = ewrs.getDistance(referenceX,referenceZ,pos.p.x,pos.p.z) -- meters
-      local altitude = pos.p.y --meters
-      local speed = ewrs.getSpeed(velocity) --m/s
-
-      if ewrs.groupSettings[tostring(activePlayer.groupID)].measurements == "metric" then
-        range = UTILS.Round(range / 1000,-1) --change to KM
-        speed = UTILS.Round(UTILS.MpsToKmph(speed),-1)
-        altitude = UTILS.Round(altitude,-1)
-      else
-        range = UTILS.Round(UTILS.MetersToNM(range),-1)
-        speed = UTILS.Round(UTILS.MpsToKnots(speed),-1)
-        altitude = UTILS.Round(UTILS.MetersToFeet(altitude),-3)
-      end
-    
-      local j = #friendlyTable + 1
-      friendlyTable[j] = {}
-      friendlyTable[j].unitType = bogeyType
-      friendlyTable[j].bearing = bearing
-      friendlyTable[j].range = range
-      friendlyTable[j].altitude = altitude
-      friendlyTable[j].speed = speed
-      friendlyTable[j].heading = heading
+    if ewrs.groupSettings[tostring(activePlayer.groupID)].measurements=="metric" then
+      local km=range/1000
+      if km>=20 then range=UTILS.Round(km,-1) else range=UTILS.Round(km,0) end
+      speed=UTILS.Round(UTILS.MpsToKmph(speed),-1)
+      altitude=UTILS.Round(altitude,-1)
     else
-      --env.info("Friendly Picture - Found Self") 
+      local nm=UTILS.MetersToNM(range)
+      if nm>=20 then range=UTILS.Round(nm,-1) else range=UTILS.Round(nm,0) end
+      speed=UTILS.Round(UTILS.MpsToKnots(speed),-1)
+      altitude=UTILS.Round(UTILS.MetersToFeet(altitude),-3)
+    end
+
+        local j=#friendlyTable+1
+        friendlyTable[j]={}
+        friendlyTable[j].unitType=bogeyType
+        friendlyTable[j].bearing=bearing
+        friendlyTable[j].range=range
+        friendlyTable[j].altitude=altitude
+        friendlyTable[j].speed=speed
+        friendlyTable[j].heading=heading
+      end
     end
   end
-
   table.sort(friendlyTable,sortRanges)
-  
   return friendlyTable
 end
 
@@ -380,17 +378,16 @@ function ewrs.buildActivePlayers()
     ewrs.activePlayers = {}
     for i = 1, #all_vecs do
       local vec = Unit.getByName(all_vecs[i])
-      if vec ~= nil and Unit.isActive(vec) then
-        playerName = Unit.getPlayerName(vec)
-        local groupID = ewrs.getGroupId(vec)
-        if playerName ~= nil then
-          env.info("Adding Player "..playerName)
-            local group = Unit.getGroup(vec)
-            if ewrs.enableBlueTeam and Unit.getCoalition(vec) == 2 then
-              ewrs.addPlayer(playerName, groupID, vec)
-            elseif ewrs.enableRedTeam and Unit.getCoalition(vec) == 1 then
-              ewrs.addPlayer(playerName, groupID, vec)
-            end
+      if vec and vec:isActive() then
+        local playerName = Unit.getPlayerName(vec)    -- static call is OK
+        local groupID    = ewrs.getGroupId(vec)
+        if playerName then
+          -- use colon again when you need the coalition of THAT unit
+          if ewrs.enableBlueTeam and vec:getCoalition() == 2 then
+            ewrs.addPlayer(playerName, groupID, vec)
+          elseif ewrs.enableRedTeam and vec:getCoalition() == 1 then
+            ewrs.addPlayer(playerName, groupID, vec)
+          end
         end
       end
     end
@@ -401,22 +398,33 @@ function ewrs.buildActivePlayers()
   end
 end
 
-function ewrs.getGroupId(_unit) --Temp fix for client groups not being accessable
-    
-    local unit = UNIT:Find(_unit)
+function ewrs.getGroupId(_unit)
+  if not _unit then return nil end
+  local unit = UNIT:Find(_unit)
+  if unit and unit:GetGroup() then
     return unit:GetGroup():GetID()
-    
+  end
+  return nil
 end
 
 function ewrs.getGroupCategory(unit)
+  if not unit then return nil end
   local unit = UNIT:Find(unit)
   local category = "none"
-  if unit:IsAirPlane() then category = "plane" end
-  if unit:IsHelicopter() then category = "helicopter" end
+
+  if unit and unit:IsAirPlane() then category = "plane" end
+  if unit and unit:IsHelicopter() then category = "helicopter" end
   return category
 end
 
-function ewrs.addPlayer(playerName, groupID, unit )
+
+function ewrs.addPlayer(playerName, groupID, unit)
+  if not playerName or not groupID or not unit then return end
+
+  local isHelo = unit:hasAttribute("Helicopters")
+    if ewrs.groupSettings[tostring(groupID)]==nil then
+    ewrs.addGroupSettings(tostring(groupID),isHelo)
+    end
   local status, result = pcall(function()
     local i = #ewrs.activePlayers + 1
     ewrs.activePlayers[i] = {}
@@ -429,83 +437,50 @@ function ewrs.addPlayer(playerName, groupID, unit )
     if ewrs.groupSettings[tostring(groupID)] == nil then
       ewrs.addGroupSettings(tostring(groupID))
     end
+
   end)
   if not status then
     env.error(string.format("EWRS addPlayer Error: %s", result))
   end
 end
 
--- filters units so ones detected by multiple radar sites still only get listed once
--- Filters out anything that isn't a plane or helicopter
-function ewrs.filterUnits(units)
-  env.info("filterUnits")
-  local newUnits = {}
-  for k,v in pairs(units) do
-    local valid = true  
-    if Object.getCategory(v["object"]) ~= Object.Category.UNIT then --rare but i've had it detect missiles
-      valid = false
-    end
-    if valid then --another check cause it seems AI radar can detected some ground units
-      local category = ewrs.getGroupCategory(v["object"])
-      env.info(tostring(category))
-      if category ~= "plane" and category ~= "helicopter" then valid = false end
-    end
-
-    if valid then
-      for nk,nv in pairs (newUnits) do --recursive loop, can't see a way around this
-        if v["object"]:getName() == nv["object"]:getName() then 
-          valid = false
-          --update already found unit in case the first detection(s) didn't know type or distance
-          if v["type"] then
-            nv["type"] = true
-          end
-          if v["distance"] then
-            nv["distance"] = true
-          end
-        end
-      end
-    end
-    
-    if valid then
-      table.insert(newUnits, v)
-    end
-  end
-  return newUnits
-end
 
 function ewrs.getDetectedTargets()
-  if #ewrs.blueEwrUnits > 0 then
-    ewrs.currentlyDetectedRedUnits = ewrs.findDetectedTargets("red")
+  if ewrs.enableBlueTeam then
+    ewrs.currentlyDetectedRedUnits  = ewrs.findDetectedTargets("red")
   end
-  if #ewrs.redEwrUnits > 0 then
+  if ewrs.enableRedTeam then
     ewrs.currentlyDetectedBlueUnits = ewrs.findDetectedTargets("blue")
   end
 end
 
-function ewrs.findDetectedTargets(side)
-  env.info("findDetectedTargets "..side)
-  local units = {}
-  local ewrUnits = {}
+  function ewrs.findDetectedTargets(side)
+    local dets = {}
+    local tgtCoal = side == "red" and 2 or 1
 
-  if side == "red" then
-    ewrUnits = ewrs.blueEwrUnits
-  elseif side == "blue" then
-    ewrUnits = ewrs.redEwrUnits
-  end
-
-  for n = 1, #ewrUnits do
-    local ewrUnit = Unit.getByName(ewrUnits[n])
-    if ewrUnit ~= nil then
-      local ewrControl = ewrUnit:getGroup():getController()
-      local detectedTargets = ewrControl:getDetectedTargets(Controller.Detection.RADAR)
-      for k,v in pairs (detectedTargets) do
-        table.insert(units, v)
+    for _, grp in ipairs(coalition.getGroups(tgtCoal)) do
+      for _, u in ipairs(grp:getUnits()) do
+        if u:isExist() 
+          and (u:hasAttribute("SAM SR") or u:hasAttribute("EWR") or u:hasAttribute("AWACS")) 
+        then
+          for _, d in ipairs(u:getController():getDetectedTargets(Controller.Detection.RADAR)) do
+            local obj = d.object
+            if obj and obj:isExist() and obj:inAir()
+              and (obj:hasAttribute("Planes") or obj:hasAttribute("Helicopters")) 
+            then
+              dets[obj:getName()] = obj
+            end
+          end
+        end
       end
     end
+
+    local out = {}
+    for _, o in pairs(dets) do
+      out[#out+1] = o
+    end
+    return out
   end
-  --UTILS.PrintTableToLog(units,1)
-  return ewrs.filterUnits(units)
-end
 
 function ewrs.findRadarUnits()
   local allunitsB = SET_UNIT:New():FilterHasSEAD():FilterCategories({"plane","ground","ship"}):FilterCoalitions("blue"):FilterOnce()
@@ -521,11 +496,12 @@ function ewrs.findRadarUnits()
   end
 end
 
-function ewrs.addGroupSettings(groupID)
-  ewrs.groupSettings[groupID] = {}
-  ewrs.groupSettings[groupID].reference = ewrs.defaultReference
-  ewrs.groupSettings[groupID].measurements = ewrs.defaultMeasurements
-  ewrs.groupSettings[groupID].messages = true
+function ewrs.addGroupSettings(groupID,isHelo)
+  ewrs.groupSettings[groupID]={}
+  ewrs.groupSettings[groupID].reference=ewrs.defaultReference
+  ewrs.groupSettings[groupID].measurements=ewrs.defaultMeasurements
+  ewrs.groupSettings[groupID].messages=true
+  ewrs.groupSettings[groupID].rangeLimit=isHelo and 5 or 60
 end
 
 function ewrs.setGroupReference(args)
@@ -536,8 +512,18 @@ end
 
 function ewrs.setGroupMeasurements(args)
   local groupID = args[1]
-  ewrs.groupSettings[tostring(groupID)].measurements = args[2]
-  trigger.action.outTextForGroup(groupID,"Measurement units changed to "..args[2],ewrs.messageDisplayTime)
+  local groupSettings = ewrs.groupSettings[tostring(groupID)]
+  local oldUnits = groupSettings.measurements
+  local newUnits = args[2]
+  if oldUnits ~= newUnits then
+    if newUnits == "metric" then
+      groupSettings.rangeLimit = UTILS.Round(groupSettings.rangeLimit * 1.852, -1)
+    else
+      groupSettings.rangeLimit = UTILS.Round(groupSettings.rangeLimit / 1.852, -1)
+    end
+  end
+  groupSettings.measurements = newUnits
+  trigger.action.outTextForGroup(groupID,"Measurement units changed to "..newUnits,ewrs.messageDisplayTime)
 end
 
 function ewrs.setGroupMessages(args)
@@ -562,6 +548,16 @@ function ewrs.buildF10Menu()
         
         if ewrs.onDemand then
           missionCommands.addCommandForGroup(groupID, "Request Picture",rootPath,ewrs.onDemandMessage,{groupID})
+        end
+        local rangeMenu = missionCommands.addSubMenuForGroup(groupID,"Set detection range",rootPath)
+        for _,u in ipairs({"km","nm"}) do
+          local sub = missionCommands.addSubMenuForGroup(groupID,u:upper(),rangeMenu)
+          for _,r in ipairs(ewrs.rangeOptions[u]) do
+            missionCommands.addCommandForGroup(groupID,r.." "..u,sub, function(args)
+              ewrs.groupSettings[tostring(args[1])].rangeLimit = args[2]
+              trigger.action.outTextForGroup(args[1],"Range set to "..args[2]..u,ewrs.messageDisplayTime)
+            end, {groupID,r})
+          end
         end
         
         if ewrs.allowFriendlyPicture then
@@ -607,8 +603,19 @@ ewrs.notAvailable = 999999
 
 ewrs.update()
 if not ewrs.onDemand then
-  timer.scheduleFunction(ewrs.displayMessageToAll, nil, timer.getTime() + ewrs.messageUpdateInterval)
+  timer.scheduleFunction(function(param, time)
+  -- run detection
+  ewrs.findRadarUnits()
+  ewrs.getDetectedTargets()
+  -- send each active player their BRA/Picture report
+  for i = 1, #ewrs.activePlayers do
+    local p = ewrs.activePlayers[i]
+    if ewrs.groupSettings[tostring(p.groupID)].messages then
+      ewrs.outText(p, ewrs.buildThreatTable(p))
+    end
+  end
+  return time + 20
+end, nil, timer.getTime() + 6)
 end
 --trigger.action.outText("EWRS by Steggles is now running",15)
 env.info("EWRS "..ewrs.version.." Running")
-
